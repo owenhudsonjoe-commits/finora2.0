@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789637282862,
+      "tag": "0000_finora_core_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789637317554,
+      "tag": "0001_payment_proofs_storage_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789637407945,
+      "tag": "0002_finora_financial_functions",
+      "breakpoints": true
+    }
+  ]
+}

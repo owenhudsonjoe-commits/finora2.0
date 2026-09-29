@@ -1,0 +1,6 @@
+{
+  "name": "FINORA — Investment Platform",
+  "description": "Transparent investment plans, verified deposits and an auditable ledger.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
