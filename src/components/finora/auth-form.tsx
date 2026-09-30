@@ -5,6 +5,8 @@ import { Loader2, ShieldCheck, AlertCircle, Mail, ArrowRight, CheckCircle2 } fro
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { ensureAccount } from "@/lib/finora.functions";
+import { registerUserRecord } from "@/lib/auth-sync.functions";
+import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +21,7 @@ function passwordIssue(password: string) {
 
 export function AuthForm({ mode, redirect }: { mode: "login" | "signup"; redirect?: string }) {
   const navigate = useNavigate();
+  const registerSync = useServerFn(registerUserRecord);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
@@ -115,6 +118,30 @@ export function AuthForm({ mode, redirect }: { mode: "login" | "signup"; redirec
           return;
         }
 
+        // If identities is 0, user already existed
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          setErrorNotice("already_registered");
+          toast.info("An account with this email already exists. Please sign in.");
+          return;
+        }
+
+        // Immediately ensure the profile, wallet, and referral are written to Supabase
+        if (data.user?.id) {
+          try {
+            await registerSync({
+              data: {
+                userId: data.user.id,
+                email: form.email.trim(),
+                fullName: form.fullName.trim(),
+                phone: form.phone.trim(),
+                referralCode: form.referral.trim() || null,
+              },
+            });
+          } catch (syncErr) {
+            console.warn("[AuthForm] Profile initial sync warning:", syncErr);
+          }
+        }
+
         // If email confirmation is not required or auto-confirmed, sign in immediately
         if (data.session) {
           toast.success("Account created successfully!");
@@ -131,13 +158,6 @@ export function AuthForm({ mode, redirect }: { mode: "login" | "signup"; redirec
         if (!signInError && signInData.session) {
           toast.success("Account created and verified!");
           await afterSignIn();
-          return;
-        }
-
-        // If identities is 0, user already existed
-        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-          setErrorNotice("already_registered");
-          toast.info("An account with this email already exists. Please sign in.");
           return;
         }
 

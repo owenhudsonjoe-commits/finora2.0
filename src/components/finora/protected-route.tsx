@@ -16,6 +16,18 @@ export type ProtectedRouteProps = {
   fallbackToAdmin?: boolean;
 };
 
+function checkIsAdminGateUnlocked(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const val =
+      sessionStorage.getItem("finora_admin_gate_unlocked") ||
+      localStorage.getItem("finora_admin_gate_unlocked");
+    return !!val && val.toLowerCase() === "umairi455";
+  } catch {
+    return false;
+  }
+}
+
 export function useAuthRole() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -34,8 +46,14 @@ export function useAuthRole() {
         setUser(currentUser);
 
         if (!currentUser) {
-          setRoles([]);
-          setIsAdmin(false);
+          const isPasscodeUnlocked = checkIsAdminGateUnlocked();
+          if (isPasscodeUnlocked) {
+            setRoles(["admin", "super_admin"]);
+            setIsAdmin(true);
+          } else {
+            setRoles([]);
+            setIsAdmin(false);
+          }
           setLoading(false);
           return;
         }
@@ -55,15 +73,10 @@ export function useAuthRole() {
         if (typeof userRole === "string") roleSet.add(userRole.toLowerCase());
         if (isMetadataAdmin) roleSet.add("admin");
 
-        // 2. Read admin passcode verification from session storage
-        try {
-          const unlocked = sessionStorage.getItem("finora_admin_gate_unlocked");
-          if (unlocked && unlocked.toLowerCase() === "umairi455") {
-            roleSet.add("admin");
-            roleSet.add("super_admin");
-          }
-        } catch {
-          // Ignore
+        // 2. Read admin passcode verification from session/local storage
+        if (checkIsAdminGateUnlocked()) {
+          roleSet.add("admin");
+          roleSet.add("super_admin");
         }
 
         // 3. Known platform administrator email check
@@ -155,9 +168,7 @@ export function ProtectedRoute({
     if (!user) {
       if (isAdminRoute) {
         // If gate is already unlocked via passcode, allow access to all admin subpaths
-        const isGateUnlocked =
-          typeof window !== "undefined" &&
-          sessionStorage.getItem("finora_admin_gate_unlocked")?.toLowerCase() === "umairi455";
+        const isGateUnlocked = checkIsAdminGateUnlocked();
 
         if (!isGateUnlocked && pathname !== "/admin") {
           navigate({ to: "/admin" });
@@ -176,9 +187,7 @@ export function ProtectedRoute({
     // CASE 2: Authenticated user accessing an admin-protected route
     if (requiredRole === "admin" || requiredRole === "super_admin") {
       if (!isAdmin) {
-        const isGateUnlocked =
-          typeof window !== "undefined" &&
-          sessionStorage.getItem("finora_admin_gate_unlocked")?.toLowerCase() === "umairi455";
+        const isGateUnlocked = checkIsAdminGateUnlocked();
 
         if (!isGateUnlocked && pathname !== "/admin") {
           navigate({ to: "/admin" });
@@ -231,9 +240,7 @@ export function ProtectedRoute({
 
   // If required role is admin and user is not admin, check if passcode gate is unlocked
   if ((requiredRole === "admin" || requiredRole === "super_admin") && !isAdmin) {
-    const isGateUnlocked =
-      typeof window !== "undefined" &&
-      sessionStorage.getItem("finora_admin_gate_unlocked")?.toLowerCase() === "umairi455";
+    const isGateUnlocked = checkIsAdminGateUnlocked();
 
     if (!isGateUnlocked && pathname !== "/admin") {
       return null;

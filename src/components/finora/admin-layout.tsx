@@ -283,7 +283,7 @@ export function AdminLayout({ children, title, description, activeItem }: AdminL
                   {adminSession?.profile?.full_name || "Super Admin"}
                 </p>
                 <p className="font-mono text-[10px] text-muted-foreground">
-                  {adminSession?.profile?.email || "umairi455"}
+                  {adminSession?.profile?.email || "admin@finora.io"}
                 </p>
               </div>
               <Button

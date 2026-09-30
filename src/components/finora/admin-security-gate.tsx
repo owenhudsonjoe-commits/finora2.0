@@ -42,7 +42,8 @@ export function AdminSecurityGate({ children }: { children: ReactNode }) {
 
     async function checkLockState() {
       try {
-        const stored = sessionStorage.getItem(ADMIN_STORAGE_KEY);
+        const stored =
+          sessionStorage.getItem(ADMIN_STORAGE_KEY) || localStorage.getItem(ADMIN_STORAGE_KEY);
         if (stored && stored.toLowerCase() === DEFAULT_PASSCODE) {
           setIsUnlocked(true);
         }
@@ -90,14 +91,14 @@ export function AdminSecurityGate({ children }: { children: ReactNode }) {
         // Non-blocking
       }
 
-      // 3. Mark admin gate unlocked in sessionStorage
+      // 3. Mark admin gate unlocked in sessionStorage and localStorage
       sessionStorage.setItem(ADMIN_STORAGE_KEY, DEFAULT_PASSCODE);
+      localStorage.setItem(ADMIN_STORAGE_KEY, DEFAULT_PASSCODE);
       await queryClient.invalidateQueries();
       setIsUnlocked(true);
       toast.success("Security passcode verified. Administrator portal unlocked.");
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : "Failed to verify security passcode.";
+      const msg = err instanceof Error ? err.message : "Failed to verify security passcode.";
       setErrorMsg(msg);
       toast.error(msg);
     } finally {
@@ -108,6 +109,7 @@ export function AdminSecurityGate({ children }: { children: ReactNode }) {
   const handleLockSession = () => {
     try {
       sessionStorage.removeItem(ADMIN_STORAGE_KEY);
+      localStorage.removeItem(ADMIN_STORAGE_KEY);
     } catch {
       // Ignore
     }
@@ -166,7 +168,10 @@ export function AdminSecurityGate({ children }: { children: ReactNode }) {
 
           <form onSubmit={handleVerifyPasscode} className="mt-6 space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="admin-security-passcode" className="text-xs font-medium text-slate-300">
+              <Label
+                htmlFor="admin-security-passcode"
+                className="text-xs font-medium text-slate-300"
+              >
                 Security Passcode
               </Label>
               <div className="relative">
@@ -190,11 +195,7 @@ export function AdminSecurityGate({ children }: { children: ReactNode }) {
                   className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 focus:outline-none"
                   aria-label={showPassword ? "Hide passcode" : "Show passcode"}
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>

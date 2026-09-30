@@ -8,8 +8,24 @@ export const attachSupabaseAuth = createMiddleware({ type: "function" }).client(
   async ({ next }) => {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const adminPass =
+          sessionStorage.getItem("finora_admin_gate_unlocked") ||
+          localStorage.getItem("finora_admin_gate_unlocked");
+        if (adminPass && adminPass.toLowerCase() === "umairi455") {
+          headers["x-admin-passcode"] = adminPass;
+        }
+      } catch {
+        // Ignore
+      }
+    }
     return next({
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers,
     });
   },
 );

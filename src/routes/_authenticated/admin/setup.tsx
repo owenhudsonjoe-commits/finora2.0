@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, redirect } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -8,17 +8,10 @@ import { FinoraLogo } from "@/components/finora/logo";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/_authenticated/admin/setup")({
-  head: () => ({
-    meta: [
-      { title: "Administrator setup — FINORA" },
-      {
-        name: "description",
-        content: "One-time setup of the first FINORA platform administrator.",
-      },
-      { name: "robots", content: "noindex" },
-    ],
-  }),
-  component: SetupPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/admin" });
+  },
+  component: () => null,
 });
 
 function SetupPage() {

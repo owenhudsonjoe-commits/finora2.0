@@ -100,7 +100,14 @@ export const getAdminSession = createServerFn({ method: "GET" })
     if (!list.length) {
       list = ["super_admin"];
     }
-    return { roles: list, areas: areasFor(list), profile };
+    return {
+      roles: list,
+      areas: areasFor(list),
+      profile: profile || {
+        full_name: "Master Administrator",
+        email: "admin@finora.io",
+      },
+    };
   });
 
 export const adminOverview = createServerFn({ method: "GET" })
@@ -263,6 +270,21 @@ export const adminDecideDeposit = createServerFn({ method: "POST" })
       return { ok: false as const, message: "A rejection reason is required." };
 
     if (data.action === "approve") {
+      // First verify deposit exists and is still pending
+      const { data: dep } = await supabaseAdmin
+        .from("deposits")
+        .select("*")
+        .eq("id", data.id)
+        .maybeSingle();
+
+      if (!dep) {
+        return { ok: false as const, message: "Deposit record not found." };
+      }
+
+      if (dep.status === "approved") {
+        return { ok: true as const, message: "Deposit is already approved." };
+      }
+
       let rpcSuccess = false;
       try {
         const { error } = await supabaseAdmin.rpc("fn_approve_deposit", {
@@ -274,62 +296,194 @@ export const adminDecideDeposit = createServerFn({ method: "POST" })
         rpcSuccess = false;
       }
 
-      // If RPC fails (e.g. database role restriction), execute atomic fallback
+      // If RPC succeeded, check if this was a plan activation deposit that also needs the investment record
+      // Or if RPC failed, execute atomic fallback with full plan activation
+      const nowIso = new Date().toISOString();
+      const depositAmount = Number(dep.amount);
+
       if (!rpcSuccess) {
-        const { data: dep } = await supabaseAdmin
+        await supabaseAdmin
           .from("deposits")
-          .select("*")
-          .eq("id", data.id)
+          .update({
+            status: "approved",
+            reviewed_by: context.userId,
+            reviewed_at: nowIso,
+          })
+          .eq("id", data.id);
+
+        const { data: wallet } = await supabaseAdmin
+          .from("wallets")
+          .select("available, invested, pending")
+          .eq("user_id", dep.user_id)
           .maybeSingle();
 
-        if (dep) {
-          await supabaseAdmin
-            .from("deposits")
-            .update({
-              status: "approved",
-              reviewed_by: context.userId,
-              reviewed_at: new Date().toISOString(),
-            })
-            .eq("id", data.id);
+        const currentAvail = Number(wallet?.available ?? 0);
+        const currentInvested = Number(wallet?.invested ?? 0);
 
-          const { data: wallet } = await supabaseAdmin
-            .from("wallets")
-            .select("available")
-            .eq("user_id", dep.user_id)
-            .maybeSingle();
-
-          const currentAvail = Number(wallet?.available ?? 0);
+        if (dep.plan_id) {
+          // DIRECT PLAN ACTIVATION DEPOSIT
+          // Balance was deposited specifically to activate this plan
           await supabaseAdmin
             .from("wallets")
             .update({
-              available: currentAvail + Number(dep.amount),
-              updated_at: new Date().toISOString(),
+              invested: currentInvested + depositAmount,
+              updated_at: nowIso,
             })
             .eq("user_id", dep.user_id);
+        } else {
+          // REGULAR WALLET DEPOSIT
+          await supabaseAdmin
+            .from("wallets")
+            .update({
+              available: currentAvail + depositAmount,
+              updated_at: nowIso,
+            })
+            .eq("user_id", dep.user_id);
+        }
 
-          try {
-            await supabaseAdmin.from("transactions").insert({
-              user_id: dep.user_id,
-              type: "deposit",
-              amount: dep.amount,
-              status: "completed",
-              description: "Deposit verified and credited by administrator",
-              related_id: dep.id,
-            });
-          } catch {
-            // Ignore transaction table insert error
-          }
+        try {
+          await supabaseAdmin.from("transactions").insert({
+            user_id: dep.user_id,
+            type: "deposit",
+            amount: depositAmount,
+            status: "completed",
+            description: dep.plan_id
+              ? "Deposit & Plan Activation verified by administrator"
+              : "Deposit verified and credited by administrator",
+            related_id: dep.id,
+          });
+        } catch {
+          // Ignore
+        }
+      }
 
-          try {
-            await supabaseAdmin.from("notifications").insert({
-              user_id: dep.user_id,
-              title: "Deposit approved",
-              message: `Your deposit of PKR ${dep.amount} has been verified and credited to your wallet.`,
-              link: "/wallet",
-            });
-          } catch {
-            // Ignore notification table insert error
+      // If this deposit was for an investment plan, ensure the investment record is active
+      if (dep.plan_id) {
+        const { data: existingInv } = await supabaseAdmin
+          .from("investments")
+          .select("id")
+          .eq("user_id", dep.user_id)
+          .eq("plan_id", dep.plan_id)
+          .eq("status", "active")
+          .maybeSingle();
+
+        if (!existingInv) {
+          const { data: plan } = await supabaseAdmin
+            .from("investment_plans")
+            .select("*")
+            .eq("id", dep.plan_id)
+            .maybeSingle();
+
+          if (plan) {
+            const startDate = new Date();
+            const endDate = new Date(startDate.getTime() + (plan.duration_days || 60) * 86400000);
+
+            const { data: newInv } = await supabaseAdmin
+              .from("investments")
+              .insert({
+                user_id: dep.user_id,
+                plan_id: plan.id,
+                plan_name: plan.name,
+                amount: depositAmount,
+                daily_earning: Number(plan.daily_earning),
+                duration_days: plan.duration_days || 60,
+                start_date: startDate.toISOString(),
+                end_date: endDate.toISOString(),
+                status: "active",
+                total_earned: 0,
+                fees: Number(plan.fees ?? 0),
+                terms_snapshot: {
+                  daily_earning: plan.daily_earning,
+                  duration_days: plan.duration_days,
+                  return_type: plan.return_type,
+                  risk_level: plan.risk_level,
+                },
+              })
+              .select("id")
+              .single();
+
+            try {
+              await supabaseAdmin.from("transactions").insert({
+                user_id: dep.user_id,
+                type: "investment",
+                amount: depositAmount,
+                status: "completed",
+                description: `Investment in ${plan.name} (${plan.duration_days} days @ PKR ${plan.daily_earning}/day)`,
+                related_id: newInv?.id ?? dep.id,
+              });
+            } catch {
+              // Ignore
+            }
+
+            // Award referral commission if user was referred
+            try {
+              const { data: profile } = await supabaseAdmin
+                .from("profiles")
+                .select("referred_by")
+                .eq("id", dep.user_id)
+                .maybeSingle();
+
+              if (profile?.referred_by) {
+                const commissionRate = 0.05; // 5% referral commission
+                const commAmount = Math.round(depositAmount * commissionRate);
+                if (commAmount > 0) {
+                  await supabaseAdmin.from("referral_commissions").insert({
+                    referrer_id: profile.referred_by,
+                    referred_id: dep.user_id,
+                    investment_id: newInv?.id ?? null,
+                    amount: commAmount,
+                    status: "completed",
+                  });
+
+                  const { data: refWallet } = await supabaseAdmin
+                    .from("wallets")
+                    .select("available")
+                    .eq("user_id", profile.referred_by)
+                    .maybeSingle();
+
+                  await supabaseAdmin
+                    .from("wallets")
+                    .update({
+                      available: Number(refWallet?.available ?? 0) + commAmount,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq("user_id", profile.referred_by);
+
+                  await supabaseAdmin.from("transactions").insert({
+                    user_id: profile.referred_by,
+                    type: "referral_commission",
+                    amount: commAmount,
+                    status: "completed",
+                    description: `Referral commission from member investment (${plan.name})`,
+                  });
+                }
+              }
+            } catch {
+              // Non-blocking
+            }
+
+            try {
+              await supabaseAdmin.from("notifications").insert({
+                user_id: dep.user_id,
+                title: "Plan Activated Successfully!",
+                message: `Your payment of PKR ${depositAmount} has been approved. The ${plan.name} plan is now ACTIVE for ${plan.duration_days} days. Daily earning: PKR ${plan.daily_earning}.`,
+                link: "/investments",
+              });
+            } catch {
+              // Non-blocking
+            }
           }
+        }
+      } else {
+        try {
+          await supabaseAdmin.from("notifications").insert({
+            user_id: dep.user_id,
+            title: "Deposit approved",
+            message: `Your deposit of PKR ${depositAmount} has been verified and credited to your wallet available balance.`,
+            link: "/wallet",
+          });
+        } catch {
+          // Non-blocking
         }
       }
     } else {
@@ -702,6 +856,115 @@ export const adminAdjustBalance = createServerFn({ method: "POST" })
       reason: data.reason,
     });
     return { ok: true as const };
+  });
+
+export const adminGetUserDetail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await guard(context as unknown as Ctx, "users");
+    const uid = data.id;
+
+    const [
+      profileRes,
+      walletRes,
+      investmentsRes,
+      depositsRes,
+      withdrawalsRes,
+      transactionsRes,
+      commissionsRes,
+    ] = await Promise.all([
+      supabaseAdmin.from("profiles").select("*").eq("id", uid).maybeSingle(),
+      supabaseAdmin.from("wallets").select("*").eq("user_id", uid).maybeSingle(),
+      supabaseAdmin
+        .from("investments")
+        .select("*")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false }),
+      supabaseAdmin
+        .from("deposits")
+        .select("*")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false }),
+      supabaseAdmin
+        .from("withdrawals")
+        .select("*")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false }),
+      supabaseAdmin
+        .from("transactions")
+        .select("*")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(30),
+      supabaseAdmin
+        .from("referral_commissions")
+        .select("*")
+        .eq("referrer_id", uid)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    const profile = profileRes.data;
+    const wallet = walletRes.data;
+    const investments = investmentsRes.data ?? [];
+    const deposits = depositsRes.data ?? [];
+    const withdrawals = withdrawalsRes.data ?? [];
+    const transactions = transactionsRes.data ?? [];
+    const commissions = commissionsRes.data ?? [];
+
+    let referrerProfile = null;
+    if (profile?.referred_by) {
+      const { data: refUser } = await supabaseAdmin
+        .from("profiles")
+        .select("id, full_name, email")
+        .eq("id", profile.referred_by)
+        .maybeSingle();
+      referrerProfile = refUser ?? null;
+    }
+
+    const totalDeposits = deposits
+      .filter((d) => d.status === "approved")
+      .reduce((s, d) => s + Number(d.amount), 0);
+    const pendingDeposits = deposits
+      .filter((d) => d.status === "pending_verification" || d.status === "submitted")
+      .reduce((s, d) => s + Number(d.amount), 0);
+
+    const totalWithdrawals = withdrawals
+      .filter((w) => w.status === "paid")
+      .reduce((s, w) => s + Number(w.amount), 0);
+    const pendingWithdrawals = withdrawals
+      .filter(
+        (w) => w.status === "pending" || w.status === "under_review" || w.status === "approved",
+      )
+      .reduce((s, w) => s + Number(w.amount), 0);
+
+    const activeInvestmentsTotal = investments
+      .filter((i) => i.status === "active")
+      .reduce((s, i) => s + Number(i.amount), 0);
+    const totalDailyEarning = investments
+      .filter((i) => i.status === "active")
+      .reduce((s, i) => s + Number(i.daily_earning), 0);
+    const totalEarned = investments.reduce((s, i) => s + Number(i.total_earned ?? 0), 0);
+
+    return {
+      profile,
+      wallet,
+      referrer: referrerProfile,
+      summary: {
+        totalDeposits,
+        pendingDeposits,
+        totalWithdrawals,
+        pendingWithdrawals,
+        activeInvestmentsTotal,
+        totalDailyEarning,
+        totalEarned,
+      },
+      investments,
+      deposits,
+      withdrawals,
+      transactions,
+      commissions,
+    };
   });
 
 export const adminListPlans = createServerFn({ method: "GET" })

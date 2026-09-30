@@ -3,7 +3,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { CheckCircle2, Ban, Trash2, Sliders, ShieldAlert, Check, RefreshCw } from "lucide-react";
+import {
+  CheckCircle2,
+  Ban,
+  Trash2,
+  Sliders,
+  ShieldAlert,
+  Check,
+  RefreshCw,
+  Eye,
+} from "lucide-react";
 import { AdminShell } from "@/components/finora/admin-shell";
 import { PageHeader, StatusBadge, LoadingRows, EmptyState } from "@/components/finora/primitives";
 import {
@@ -12,6 +21,7 @@ import {
   adminAdjustBalance,
   adminApproveUser,
   adminDeleteUser,
+  adminGetUserDetail,
 } from "@/lib/admin.functions";
 import { money, dateOnly } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -47,6 +57,7 @@ export function UsersPage() {
   const approveUser = useServerFn(adminApproveUser);
   const deleteUser = useServerFn(adminDeleteUser);
   const adjust = useServerFn(adminAdjustBalance);
+  const getUserDetail = useServerFn(adminGetUserDetail);
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
@@ -54,6 +65,7 @@ export function UsersPage() {
     "all",
   );
   const [target, setTarget] = useState<{ id: string; name: string } | null>(null);
+  const [inspectUserId, setInspectUserId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
     name: string;
@@ -64,6 +76,12 @@ export function UsersPage() {
   const [reason, setReason] = useState("");
 
   const { data, isLoading } = useQuery({ queryKey: ["admin-users"], queryFn: () => list() });
+
+  const userDetailQuery = useQuery({
+    queryKey: ["admin-user-detail", inspectUserId],
+    queryFn: () => (inspectUserId ? getUserDetail({ data: { id: inspectUserId } }) : null),
+    enabled: Boolean(inspectUserId),
+  });
 
   const statusMutation = useMutation({
     mutationFn: (v: { id: string; status: "active" | "suspended" | "pending" | "deactivated" }) =>
@@ -214,13 +232,23 @@ export function UsersPage() {
                 return (
                   <tr key={u.id} className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
-                      <p className="font-medium text-foreground">{u.full_name || "Unnamed"}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {u.email} {u.phone ? `· ${u.phone}` : ""} · joined {dateOnly(u.created_at)}
-                      </p>
-                      <p className="font-mono text-[0.7rem] text-muted-foreground">
-                        Ref: {u.referral_code}
-                      </p>
+                      <div
+                        onClick={() => setInspectUserId(u.id)}
+                        className="cursor-pointer group"
+                        title="Click to view full user profile & financial history"
+                      >
+                        <p className="font-medium text-foreground group-hover:text-primary transition-colors flex items-center gap-1.5">
+                          {u.full_name || "Unnamed"}
+                          <Eye className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {u.email} {u.phone ? `· ${u.phone}` : ""} · joined{" "}
+                          {dateOnly(u.created_at)}
+                        </p>
+                        <p className="font-mono text-[0.7rem] text-muted-foreground">
+                          Ref: {u.referral_code}
+                        </p>
+                      </div>
                     </td>
                     <td className="num px-4 py-3 text-right font-mono font-medium">
                       {money(u.wallet?.available ?? 0)}

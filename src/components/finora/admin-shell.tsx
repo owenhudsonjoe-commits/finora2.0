@@ -268,7 +268,7 @@ export function AdminShell({ area, children }: { area: AdminArea; children: Reac
             <div className="flex items-center gap-3 text-right">
               <div className="hidden sm:block">
                 <p className="text-sm font-medium">
-                  {data?.profile?.full_name || data?.profile?.email || "umairi455"}
+                  {data?.profile?.full_name || data?.profile?.email || "Master Administrator"}
                 </p>
                 <p className="text-muted-foreground text-xs">{roles.map(titleCase).join(" · ")}</p>
               </div>
