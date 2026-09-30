@@ -154,8 +154,12 @@ export function ProtectedRoute({
     // CASE 1: Unauthenticated user
     if (!user) {
       if (isAdminRoute) {
-        // Specifically redirect to /admin instead of defaulting to /login
-        if (pathname !== "/admin") {
+        // If gate is already unlocked via passcode, allow access to all admin subpaths
+        const isGateUnlocked =
+          typeof window !== "undefined" &&
+          sessionStorage.getItem("finora_admin_gate_unlocked")?.toLowerCase() === "umairi455";
+
+        if (!isGateUnlocked && pathname !== "/admin") {
           navigate({ to: "/admin" });
         }
         return;
@@ -172,9 +176,11 @@ export function ProtectedRoute({
     // CASE 2: Authenticated user accessing an admin-protected route
     if (requiredRole === "admin" || requiredRole === "super_admin") {
       if (!isAdmin) {
-        // User is logged in but does not have the admin role
-        // Redirect them to /admin so the Security Gate can authenticate/elevate their credentials
-        if (pathname !== "/admin") {
+        const isGateUnlocked =
+          typeof window !== "undefined" &&
+          sessionStorage.getItem("finora_admin_gate_unlocked")?.toLowerCase() === "umairi455";
+
+        if (!isGateUnlocked && pathname !== "/admin") {
           navigate({ to: "/admin" });
         }
       }
@@ -223,9 +229,15 @@ export function ProtectedRoute({
     return null;
   }
 
-  // If required role is admin and user is not admin, wait for redirect or AdminSecurityGate
-  if (user && (requiredRole === "admin" || requiredRole === "super_admin") && !isAdmin) {
-    if (pathname !== "/admin") return null;
+  // If required role is admin and user is not admin, check if passcode gate is unlocked
+  if ((requiredRole === "admin" || requiredRole === "super_admin") && !isAdmin) {
+    const isGateUnlocked =
+      typeof window !== "undefined" &&
+      sessionStorage.getItem("finora_admin_gate_unlocked")?.toLowerCase() === "umairi455";
+
+    if (!isGateUnlocked && pathname !== "/admin") {
+      return null;
+    }
   }
 
   return <>{children}</>;

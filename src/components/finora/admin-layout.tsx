@@ -9,6 +9,10 @@ import {
   LineChart,
   Receipt,
   Settings,
+  LifeBuoy,
+  Bell,
+  ScrollText,
+  Share2,
   Menu,
   X,
   ExternalLink,
@@ -68,6 +72,12 @@ export const PRIMARY_ADMIN_LINKS: AdminNavLink[] = [
 
 export const SECONDARY_ADMIN_LINKS: AdminNavLink[] = [
   {
+    to: "/admin/support",
+    label: "Tickets & Support",
+    icon: LifeBuoy,
+    key: "support",
+  },
+  {
     to: "/admin/plans",
     label: "Plans",
     icon: Layers,
@@ -86,10 +96,28 @@ export const SECONDARY_ADMIN_LINKS: AdminNavLink[] = [
     key: "transactions",
   },
   {
+    to: "/admin/referrals",
+    label: "Referrals",
+    icon: Share2,
+    key: "referrals",
+  },
+  {
+    to: "/admin/notifications",
+    label: "Broadcasts",
+    icon: Bell,
+    key: "notifications",
+  },
+  {
     to: "/admin/settings",
     label: "Settings",
     icon: Settings,
     key: "settings",
+  },
+  {
+    to: "/admin/logs",
+    label: "Audit Logs",
+    icon: ScrollText,
+    key: "logs",
   },
 ];
 
